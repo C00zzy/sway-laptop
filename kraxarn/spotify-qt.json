@@ -1,0 +1,59 @@
+{
+    "Account": {
+        "access_token": "BQC8nbLYfhjNeV5Pi85KWpXuUiZC23bR4yt9dnB2tRRnTaLlgPzD-5QDNf9WCBiYyLnSM7gLx-ppabJ_SNoLVHfZvllpuExf0B22FqzUqpgboK0IDgG-NQGKQ2YhoiwZecWnjCuddaEXaxbGEUTf53yugXMf445lGP8r6rn2pCds0EWLFNt-JCNgvyAY-GglHQiumMKyVeLyqmZDQc30rp81c0vgH_Y7MS2P57ogbVgJaoq7UkUe2Cib_giXhPSdGLQgIAG8-mR2s8EB2ScNyfVFH4Um00b5GWZu1emhq-pyIJrh92ZHO26U999hIOZhPcgcLAyPxvWf",
+        "client_id": "83bff0f0d25d45c6bdac963cbe92d84e",
+        "client_secret": "1a5b73d3aaf34306a5d21f05035e1db0",
+        "last_refresh": 1721767911,
+        "refresh_token": "AQAHcWTvddXlzm3X_pH8g1XpfVkZMnfRn-_7MVdXYJQzPj_ehFl12V7Xx8ug5P2XR-HEIeU9ZE5k8aoAl8s9J-rm7lKeKy96xoMotaQC2a1xoOuJjkmJ7YsYURVTQ4Axe-M"
+    },
+    "General": {
+        "check_for_updates": true,
+        "close_to_tray": true,
+        "custom_playlist_order": [],
+        "fallback_icons": false,
+        "hidden_song_headers": [],
+        "ignore_unavailable_index": false,
+        "last_device": "",
+        "last_playlist": "559BYR8JSYCR8VpY5rESsN",
+        "last_version": "v3.11",
+        "media_controller": false,
+        "native_window": false,
+        "notify_track_change": false,
+        "playlist_order": 0,
+        "refresh_interval": 3,
+        "relative_added": true,
+        "show_changelog": true,
+        "song_header_sort_by": -1,
+        "style": "Fusion",
+        "style_palette": 2,
+        "track_list_resize_mode": 0,
+        "track_numbers": 1,
+        "tray_album_art": true,
+        "tray_icon": true,
+        "tray_light_icon": false
+    },
+    "Qt": {
+        "album_shape": 1,
+        "album_size": 0,
+        "custom_font_name": "",
+        "custom_font_size": 0,
+        "library_layout": 0,
+        "mirror_title_bar": false,
+        "system_title_bar": false,
+        "toolbar_position": 1
+    },
+    "Spotify": {
+        "additional_arguments": "",
+        "always_start": true,
+        "backend": "pulseaudio",
+        "bitrate": 320,
+        "device_type": 1,
+        "disable_discovery": false,
+        "global_config": false,
+        "max_queue": 500,
+        "path": "/home/nolan/git/librespot/target/release/librespot",
+        "start_client": true,
+        "username": "zds9rygk8vrt60o7qlb2oqf56",
+        "volume": 100
+    }
+}

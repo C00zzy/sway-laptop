@@ -1,0 +1,19 @@
+#User Preferences
+#Fri Jul 26 13:33:44 EDT 2024
+ProjectDirectory=/home/nolan/
+LastNewProjectDirectory=/home/nolan/
+LastOpenedProject=/home/nolan/nzxt
+TIP_INDEX=3
+G_FILE_CHOOSER.VIEW_STYLE.Select\ File\ to\ Import=SimpleView
+SHOW_TIPS=false
+USER_AGREEMENT=ACCEPT
+ViewedProjects=
+LastImportFile=/home/nolan/Downloads/nzxt/AFUWIN/amifldrv64.sys
+SHOW.HELP.NAVIGATION.AID=true
+G_FILE_CHOOSER.HEIGHT.Select\ File\ to\ Import=600
+RECENT_0=/home/nolan/Downloads/nzxt/AFUWIN
+Theme=Class\:generic.theme.builtin.NimbusTheme
+GhidraShowWhatsNew=false
+RECENT_1=/home/nolan/projects
+RecentProjects=/home/nolan/nzxt
+G_FILE_CHOOSER.WIDTH.Select\ File\ to\ Import=800
