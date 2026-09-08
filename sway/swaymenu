@@ -1,0 +1,1040 @@
+#!/usr/bin/env bash
+#
+# sway-menu.sh — menu for Sway configs, networking tools, system maintenance,
+#                and Wayland utilities on Debian
+#
+# Usage: ./sway-menu.sh
+#
+# Edit the CONFIG_FILES array below to match whatever's actually on your system.
+
+set -uo pipefail
+
+EDITOR="${EDITOR:-nvim}"
+
+# --- Styling ----------------------------------------------------------------
+BOLD="\e[1m"
+RESET="\e[0m"
+CYAN="\e[1;36m"
+
+banner() {
+    printf "${CYAN}"
+    cat <<'LOGO'
+     _______.____    __    ____  ___   ____    ____    .___  ___.  _______ .__   __.  __    __
+    /       |\   \  /  \  /   / /   \  \   \  /   /    |   \/   | |   ____||  \ |  | |  |  |  |
+   |   (----` \   \/    \/   / /  ^  \  \   \/   /     |  \  /  | |  |__   |   \|  | |  |  |  |
+    \   \      \            / /  /_\  \  \_    _/      |  |\/|  | |   __|  |  . `  | |  |  |  |
+.----)   |      \    /\    / /  _____  \   |  |        |  |  |  | |  |____ |  |\   | |  `--'  |
+|_______/        \__/  \__/ /__/     \__\  |__|        |__|  |__| |_______||__| \__|  \______/
+LOGO
+    printf "${RESET}\n"
+}
+
+# Label|Path pairs. Comment out / add lines to match your actual setup.
+CONFIG_FILES=(
+    "Sway main config|$HOME/.config/sway/config"
+    "Waybar config|$HOME/.config/waybar/config"
+    "Waybar style (CSS)|$HOME/.config/waybar/style.css"
+    "Rofi config|$HOME/.config/rofi/config.rasi"
+    "Foot terminal config|$HOME/.config/foot/foot.conf"
+)
+
+pause() {
+    read -rp $'\nPress Enter to continue...'
+}
+
+check_cmd() {
+    command -v "$1" &>/dev/null
+}
+
+# Offers to install a missing apt package, then re-checks for the command.
+ensure_cmd() {
+    local cmd="$1" pkg="${2:-$1}"
+    if check_cmd "$cmd"; then
+        return 0
+    fi
+    echo "'$cmd' not found."
+    read -rp "Install package '$pkg' now? [y/N] " ans
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+        sudo apt install -y "$pkg"
+    fi
+    check_cmd "$cmd"
+}
+
+menu_header() {
+    clear
+    banner
+    if [[ -n "$1" ]]; then
+        echo -e "${BOLD}$1${RESET}"
+        echo
+    fi
+}
+
+# =============================================================================
+# Sway config editing
+# =============================================================================
+
+edit_file() {
+    local path="$1"
+    local dir
+    dir="$(dirname "$path")"
+
+    if [[ ! -f "$path" ]]; then
+        echo "File not found: $path"
+        read -rp "Create it? [y/N] " ans
+        if [[ "$ans" =~ ^[Yy]$ ]]; then
+            mkdir -p "$dir"
+            touch "$path"
+        else
+            return
+        fi
+    fi
+
+    "$EDITOR" "$path"
+}
+
+reload_sway() {
+    if check_cmd swaymsg; then
+        swaymsg reload && echo "Sway config reloaded."
+    else
+        echo "swaymsg not found — are you running this inside Sway?"
+    fi
+    pause
+}
+
+show_config_menu() {
+    while true; do
+        menu_header "Sway Config Files"
+        local i=1
+        for entry in "${CONFIG_FILES[@]}"; do
+            local label="${entry%%|*}"
+            local path="${entry#*|}"
+            if [[ -f "$path" ]]; then
+                printf "  ${BOLD}%2d)${RESET} %-28s ${BOLD}[found]${RESET}\n" "$i" "$label"
+            else
+                printf "  ${BOLD}%2d)${RESET} %-28s [missing]\n" "$i" "$label"
+            fi
+            ((i++))
+        done
+        echo -e "   ${BOLD}0)${RESET} Back to main menu"
+        echo
+        read -rp "$(echo -e ${BOLD}'Select a file to edit: '${RESET})" choice
+
+        if [[ "$choice" == "0" ]]; then
+            return
+        elif [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#CONFIG_FILES[@]} )); then
+            local entry="${CONFIG_FILES[$((choice-1))]}"
+            edit_file "${entry#*|}"
+        else
+            echo "Invalid selection."
+            pause
+        fi
+    done
+}
+
+# =============================================================================
+# Networking tools
+# =============================================================================
+
+launch_wireshark() {
+    if ensure_cmd wireshark wireshark; then
+        echo "Launching Wireshark..."
+        nohup wireshark >/dev/null 2>&1 &
+        disown
+    fi
+    pause
+}
+
+tcpdump_capture() {
+    ensure_cmd tcpdump tcpdump || { pause; return; }
+    read -rp "Interface to capture on (blank = any): " iface
+    iface="${iface:-any}"
+    read -rp "Number of packets to capture (blank = unlimited, Ctrl+C to stop): " count
+    read -rp "Optional filter expression (e.g. 'port 80'): " filt
+    local cmd=(sudo tcpdump -i "$iface")
+    [[ -n "$count" ]] && cmd+=(-c "$count")
+    echo "Running: ${cmd[*]} $filt"
+    # shellcheck disable=SC2086
+    "${cmd[@]}" $filt
+    pause
+}
+
+nm_menu() {
+    while true; do
+        menu_header "NetworkManager"
+        echo -e "  ${BOLD}1)${RESET} Open nmtui (full TUI)"
+        echo -e "  ${BOLD}2)${RESET} Show connection status"
+        echo -e "  ${BOLD}3)${RESET} List available Wi-Fi networks"
+        echo -e "  ${BOLD}4)${RESET} Connect to a Wi-Fi network"
+        echo -e "  ${BOLD}5)${RESET} Toggle Wi-Fi on/off"
+        echo -e "  ${BOLD}0)${RESET} Back"
+        echo
+        read -rp "Choose an option: " c
+        case "$c" in
+            1) ensure_cmd nmtui network-manager && nmtui ;;
+            2) nmcli general status; echo; nmcli connection show; pause ;;
+            3) nmcli device wifi list; pause ;;
+            4)
+                read -rp "SSID: " ssid
+                read -rsp "Password (leave blank for open network): " pw
+                echo
+                if [[ -z "$pw" ]]; then
+                    nmcli device wifi connect "$ssid"
+                else
+                    nmcli device wifi connect "$ssid" password "$pw"
+                fi
+                pause
+                ;;
+            5)
+                read -rp "Turn Wi-Fi on or off? [on/off]: " state
+                nmcli radio wifi "$state"
+                pause
+                ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+bt_menu() {
+    if ! ensure_cmd bluetoothctl bluez; then
+        pause
+        return
+    fi
+    while true; do
+        menu_header "Bluetooth (BlueZ)"
+        echo -e "  ${BOLD}1)${RESET} Open bluetoothctl (interactive)"
+        echo -e "  ${BOLD}2)${RESET} Power on"
+        echo -e "  ${BOLD}3)${RESET} Power off"
+        echo -e "  ${BOLD}4)${RESET} Scan for devices (10s)"
+        echo -e "  ${BOLD}5)${RESET} List paired devices"
+        echo -e "  ${BOLD}6)${RESET} Pair with a device"
+        echo -e "  ${BOLD}7)${RESET} Connect to a device"
+        echo -e "  ${BOLD}0)${RESET} Back"
+        echo
+        read -rp "Choose an option: " c
+        case "$c" in
+            1) bluetoothctl ;;
+            2) bluetoothctl power on; pause ;;
+            3) bluetoothctl power off; pause ;;
+            4)
+                echo "Scanning for 10 seconds..."
+                bluetoothctl --timeout 10 scan on
+                echo
+                bluetoothctl devices
+                pause
+                ;;
+            5) bluetoothctl paired-devices; pause ;;
+            6) read -rp "MAC address to pair: " mac; bluetoothctl pair "$mac"; pause ;;
+            7) read -rp "MAC address to connect: " mac; bluetoothctl connect "$mac"; pause ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+nmap_menu() {
+    if ! ensure_cmd nmap nmap; then
+        pause
+        return
+    fi
+    while true; do
+        menu_header "Nmap Scans"
+        echo -e "  ${BOLD}1)${RESET} Ping scan a subnet (host discovery)"
+        echo -e "  ${BOLD}2)${RESET} Fast scan of a host (top ports)"
+        echo -e "  ${BOLD}3)${RESET} Full port scan of a host (all 65535 ports)"
+        echo -e "  ${BOLD}4)${RESET} OS detection scan (requires sudo)"
+        echo -e "  ${BOLD}5)${RESET} Custom scan (your own flags)"
+        echo -e "  ${BOLD}0)${RESET} Back"
+        echo
+        read -rp "Choose an option: " c
+        case "$c" in
+            1) read -rp "Subnet (e.g. 192.168.1.0/24): " t; nmap -sn "$t"; pause ;;
+            2) read -rp "Target host/IP: " t; nmap -F "$t"; pause ;;
+            3) read -rp "Target host/IP: " t; nmap -p- "$t"; pause ;;
+            4) read -rp "Target host/IP: " t; sudo nmap -O "$t"; pause ;;
+            5)
+                read -rp "Target host/IP: " t
+                read -rp "Extra nmap flags (e.g. -sV -p 22,80,443): " f
+                # shellcheck disable=SC2086
+                nmap $f "$t"
+                pause
+                ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+ip_mac_menu() {
+    while true; do
+        menu_header "IP & MAC Addressing Info"
+        echo -e "  ${BOLD}1)${RESET} Show all IP addresses (per interface)"
+        echo -e "  ${BOLD}2)${RESET} Show interface MAC addresses"
+        echo -e "  ${BOLD}3)${RESET} Show routing table"
+        echo -e "  ${BOLD}4)${RESET} Show ARP / neighbor table"
+        echo -e "  ${BOLD}5)${RESET} Show DNS resolver info"
+        echo -e "  ${BOLD}6)${RESET} Check public IP address (needs internet)"
+        echo -e "  ${BOLD}0)${RESET} Back"
+        echo
+        read -rp "Choose an option: " c
+        case "$c" in
+            1) ip -c addr show; pause ;;
+            2) ip -c link show; pause ;;
+            3) ip -c route show; pause ;;
+            4) ip -c neigh show; pause ;;
+            5)
+                if check_cmd resolvectl; then
+                    resolvectl status
+                elif [[ -f /etc/resolv.conf ]]; then
+                    cat /etc/resolv.conf
+                else
+                    echo "No DNS resolver info found."
+                fi
+                pause
+                ;;
+            6)
+                if check_cmd curl; then
+                    curl -s ifconfig.me && echo
+                elif check_cmd wget; then
+                    wget -qO- ifconfig.me && echo
+                else
+                    echo "Neither curl nor wget is installed."
+                fi
+                pause
+                ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+dns_lookup() {
+    ensure_cmd dig dnsutils || { pause; return; }
+    read -rp "Hostname to look up: " host
+    [[ -z "$host" ]] && return
+    dig "$host"
+    pause
+}
+
+traceroute_tool() {
+    read -rp "Target host/IP: " t
+    [[ -z "$t" ]] && return
+    if check_cmd mtr; then
+        mtr "$t"
+    elif ensure_cmd traceroute traceroute; then
+        traceroute "$t"
+    else
+        pause
+        return
+    fi
+    pause
+}
+
+bandwidth_monitor() {
+    menu_header "Bandwidth Monitor"
+    echo -e "  ${BOLD}1)${RESET} iftop (per-connection)"
+    echo -e "  ${BOLD}2)${RESET} nethogs (per-process)"
+    echo -e "  ${BOLD}3)${RESET} bmon (per-interface)"
+    echo
+    read -rp "Choose an option: " c
+    case "$c" in
+        1) ensure_cmd iftop iftop && sudo iftop ;;
+        2) ensure_cmd nethogs nethogs && sudo nethogs ;;
+        3) ensure_cmd bmon bmon && bmon ;;
+        *) return ;;
+    esac
+}
+
+show_sockets() {
+    ensure_cmd ss iproute2 || { pause; return; }
+    echo "Listening TCP/UDP sockets:"
+    sudo ss -tulpn
+    pause
+}
+
+iperf3_tool() {
+    ensure_cmd iperf3 iperf3 || { pause; return; }
+    echo "1) Run as server (waits for a connection)"
+    echo "2) Run as client (connect to a server)"
+    read -rp "Choose an option: " c
+    case "$c" in
+        1) iperf3 -s ;;
+        2) read -rp "Server IP: " ip; iperf3 -c "$ip" ;;
+        *) return ;;
+    esac
+    pause
+}
+
+arp_scan_lan() {
+    ensure_cmd arp-scan arp-scan || { pause; return; }
+    read -rp "Interface (blank = default route interface): " iface
+    if [[ -z "$iface" ]]; then
+        sudo arp-scan --localnet
+    else
+        sudo arp-scan --interface="$iface" --localnet
+    fi
+    pause
+}
+
+ethtool_info() {
+    ensure_cmd ethtool ethtool || { pause; return; }
+    read -rp "Interface name (e.g. eth0, wlan0): " iface
+    [[ -z "$iface" ]] && return
+    sudo ethtool "$iface"
+    pause
+}
+
+diagnostics_menu() {
+    while true; do
+        menu_header "Network Diagnostics"
+        echo -e "  ${BOLD}1)${RESET} DNS lookup (dig)"
+        echo -e "  ${BOLD}2)${RESET} Traceroute / mtr"
+        echo -e "  ${BOLD}3)${RESET} Bandwidth monitor"
+        echo -e "  ${BOLD}4)${RESET} Show listening sockets (ss)"
+        echo -e "  ${BOLD}5)${RESET} iperf3 speed test"
+        echo -e "  ${BOLD}6)${RESET} arp-scan the LAN"
+        echo -e "  ${BOLD}7)${RESET} ethtool interface info"
+        echo -e "  ${BOLD}0)${RESET} Back"
+        echo
+        read -rp "Choose an option: " c
+        case "$c" in
+            1) dns_lookup ;;
+            2) traceroute_tool ;;
+            3) bandwidth_monitor ;;
+            4) show_sockets ;;
+            5) iperf3_tool ;;
+            6) arp_scan_lan ;;
+            7) ethtool_info ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+firewall_menu() {
+    if ! ensure_cmd ufw ufw; then
+        pause
+        return
+    fi
+    while true; do
+        menu_header "Firewall (ufw)"
+        echo -e "  ${BOLD}1)${RESET} Show status"
+        echo -e "  ${BOLD}2)${RESET} Enable firewall"
+        echo -e "  ${BOLD}3)${RESET} Disable firewall"
+        echo -e "  ${BOLD}4)${RESET} Allow a port/service"
+        echo -e "  ${BOLD}5)${RESET} Deny a port/service"
+        echo -e "  ${BOLD}6)${RESET} Delete a rule"
+        echo -e "  ${BOLD}0)${RESET} Back"
+        echo
+        read -rp "Choose an option: " c
+        case "$c" in
+            1) sudo ufw status verbose; pause ;;
+            2) sudo ufw enable; pause ;;
+            3) sudo ufw disable; pause ;;
+            4) read -rp "Port or service to allow (e.g. 22, 80/tcp, ssh): " r; sudo ufw allow "$r"; pause ;;
+            5) read -rp "Port or service to deny (e.g. 23, 8080/tcp): " r; sudo ufw deny "$r"; pause ;;
+            6)
+                sudo ufw status numbered
+                read -rp "Rule number to delete: " n
+                [[ -n "$n" ]] && sudo ufw --force delete "$n"
+                pause
+                ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+vpn_menu() {
+    while true; do
+        menu_header "VPN Status (WireGuard / OpenVPN)"
+        echo -e "  ${BOLD}1)${RESET} WireGuard status"
+        echo -e "  ${BOLD}2)${RESET} WireGuard bring up an interface"
+        echo -e "  ${BOLD}3)${RESET} WireGuard bring down an interface"
+        echo -e "  ${BOLD}4)${RESET} OpenVPN service status"
+        echo -e "  ${BOLD}0)${RESET} Back"
+        echo
+        read -rp "Choose an option: " c
+        case "$c" in
+            1) ensure_cmd wg wireguard-tools && sudo wg show; pause ;;
+            2) read -rp "WireGuard interface (e.g. wg0): " i; [[ -n "$i" ]] && sudo wg-quick up "$i"; pause ;;
+            3) read -rp "WireGuard interface (e.g. wg0): " i; [[ -n "$i" ]] && sudo wg-quick down "$i"; pause ;;
+            4) read -rp "OpenVPN service/config name: " n; [[ -n "$n" ]] && systemctl status "openvpn@$n"; pause ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+networking_menu() {
+    while true; do
+        menu_header "Networking Tools"
+        echo -e "  ${BOLD}1)${RESET} Wireshark"
+        echo -e "  ${BOLD}2)${RESET} tcpdump (quick capture)"
+        echo -e "  ${BOLD}3)${RESET} NetworkManager"
+        echo -e "  ${BOLD}4)${RESET} Bluetooth (BlueZ)"
+        echo -e "  ${BOLD}5)${RESET} Nmap scans"
+        echo -e "  ${BOLD}6)${RESET} IP & MAC addressing info"
+        echo -e "  ${BOLD}7)${RESET} Diagnostics (DNS, traceroute, bandwidth, etc.)"
+        echo -e "  ${BOLD}8)${RESET} Firewall (ufw)"
+        echo -e "  ${BOLD}9)${RESET} VPN status (WireGuard / OpenVPN)"
+        echo -e "  ${BOLD}0)${RESET} Back"
+        echo
+        read -rp "Choose an option: " c
+        case "$c" in
+            1) launch_wireshark ;;
+            2) tcpdump_capture ;;
+            3) nm_menu ;;
+            4) bt_menu ;;
+            5) nmap_menu ;;
+            6) ip_mac_menu ;;
+            7) diagnostics_menu ;;
+            8) firewall_menu ;;
+            9) vpn_menu ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+# =============================================================================
+# System tools
+# =============================================================================
+
+apt_update_system() {
+    echo "Updating package lists..."
+    sudo apt update
+    echo
+    echo "Upgrading installed packages..."
+    sudo apt full-upgrade -y
+    pause
+}
+
+apt_autoremove_orphans() {
+    echo "Running apt autoremove..."
+    sudo apt autoremove -y
+    if check_cmd deborphan; then
+        echo
+        echo "Checking for additional orphaned libraries with deborphan..."
+        local orphans
+        orphans="$(deborphan)"
+        if [[ -n "$orphans" ]]; then
+            echo "$orphans"
+            read -rp "Purge these packages? [y/N] " ans
+            if [[ "$ans" =~ ^[Yy]$ ]]; then
+                # shellcheck disable=SC2086
+                sudo apt purge -y $orphans
+            fi
+        else
+            echo "No additional orphans found."
+        fi
+    else
+        echo "(Tip: install 'deborphan' for a more thorough orphan check.)"
+    fi
+    pause
+}
+
+apt_update_mirrors() {
+    if ! ensure_cmd netselect-apt netselect-apt; then
+        pause
+        return
+    fi
+    read -rp "Debian release codename (e.g. bookworm, trixie): " release
+    [[ -z "$release" ]] && { echo "No release given."; pause; return; }
+
+    sudo netselect-apt "$release" -o /tmp/sources.list.new
+    echo
+    echo "New sources list generated at /tmp/sources.list.new"
+    read -rp "Back up /etc/apt/sources.list and replace it with the new one? [y/N] " ans
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+        sudo cp /etc/apt/sources.list "/etc/apt/sources.list.bak.$(date +%s)"
+        sudo cp /tmp/sources.list.new /etc/apt/sources.list
+        sudo apt update
+    fi
+    pause
+}
+
+apt_install_package() {
+    read -rp "Package name to install: " pkg
+    [[ -z "$pkg" ]] && return
+    sudo apt install -y "$pkg"
+    pause
+}
+
+apt_remove_package() {
+    read -rp "Package name to remove: " pkg
+    [[ -z "$pkg" ]] && return
+    read -rp "Purge config files too instead of a plain remove? [y/N] " ans
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+        sudo apt purge -y "$pkg"
+    else
+        sudo apt remove -y "$pkg"
+    fi
+    pause
+}
+
+apt_menu() {
+    while true; do
+        menu_header "APT Package Management"
+        echo -e "  ${BOLD}1)${RESET} Update system (apt update && full-upgrade)"
+        echo -e "  ${BOLD}2)${RESET} Autoremove orphaned packages"
+        echo -e "  ${BOLD}3)${RESET} Update mirrors (netselect-apt)"
+        echo -e "  ${BOLD}4)${RESET} Install a package"
+        echo -e "  ${BOLD}5)${RESET} Remove a package"
+        echo -e "  ${BOLD}0)${RESET} Back"
+        echo
+        read -rp "Choose an option: " c
+        case "$c" in
+            1) apt_update_system ;;
+            2) apt_autoremove_orphans ;;
+            3) apt_update_mirrors ;;
+            4) apt_install_package ;;
+            5) apt_remove_package ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+syslog_menu() {
+    while true; do
+        menu_header "Linux System Logs"
+        echo -e "  ${BOLD}1)${RESET} View recent logs (last 100 lines, journalctl)"
+        echo -e "  ${BOLD}2)${RESET} Follow logs live (journalctl -f, Ctrl+C to stop)"
+        echo -e "  ${BOLD}3)${RESET} View kernel messages (dmesg)"
+        echo -e "  ${BOLD}4)${RESET} View /var/log/syslog"
+        echo -e "  ${BOLD}5)${RESET} View /var/log/auth.log"
+        echo -e "  ${BOLD}6)${RESET} Search logs for a keyword"
+        echo -e "  ${BOLD}7)${RESET} View logs for a specific service"
+        echo -e "  ${BOLD}0)${RESET} Back"
+        echo
+        read -rp "Choose an option: " c
+        case "$c" in
+            1)
+                if check_cmd journalctl; then
+                    journalctl -n 100 --no-pager
+                else
+                    echo "journalctl not found (not a systemd system?)."
+                fi
+                pause
+                ;;
+            2)
+                if check_cmd journalctl; then
+                    journalctl -f
+                else
+                    echo "journalctl not found (not a systemd system?)."
+                    pause
+                fi
+                ;;
+            3)
+                if check_cmd dmesg; then
+                    dmesg -T --color=always | less -R
+                else
+                    echo "dmesg not found."
+                    pause
+                fi
+                ;;
+            4)
+                if [[ -f /var/log/syslog ]]; then
+                    sudo less /var/log/syslog
+                else
+                    echo "/var/log/syslog not found (this system may only use journalctl)."
+                    pause
+                fi
+                ;;
+            5)
+                if [[ -f /var/log/auth.log ]]; then
+                    sudo less /var/log/auth.log
+                else
+                    echo "/var/log/auth.log not found."
+                    pause
+                fi
+                ;;
+            6)
+                read -rp "Keyword to search for: " kw
+                [[ -z "$kw" ]] && continue
+                if check_cmd journalctl; then
+                    journalctl --no-pager -g "$kw" | tail -n 200
+                elif [[ -f /var/log/syslog ]]; then
+                    sudo grep -i "$kw" /var/log/syslog | tail -n 200
+                else
+                    echo "No log source available to search."
+                fi
+                pause
+                ;;
+            7)
+                read -rp "Service/unit name: " svc
+                [[ -z "$svc" ]] && continue
+                if check_cmd journalctl; then
+                    journalctl -u "$svc" -n 200 --no-pager
+                else
+                    echo "journalctl not found (not a systemd system?)."
+                fi
+                pause
+                ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+sensors_tool() {
+    ensure_cmd sensors lm-sensors || { pause; return; }
+    sensors
+    pause
+}
+
+smartctl_tool() {
+    ensure_cmd smartctl smartmontools || { pause; return; }
+    echo "Available block devices:"
+    lsblk -d -o NAME,SIZE,MODEL
+    echo
+    read -rp "Device to check (e.g. sda, nvme0n1): " dev
+    [[ -z "$dev" ]] && return
+    sudo smartctl -a "/dev/$dev"
+    pause
+}
+
+ncdu_tool() {
+    ensure_cmd ncdu ncdu || { pause; return; }
+    read -rp "Directory to analyze (blank = /): " dir
+    dir="${dir:-/}"
+    sudo ncdu "$dir"
+}
+
+sysinfo_tool() {
+    if check_cmd fastfetch; then
+        fastfetch
+    elif check_cmd neofetch; then
+        neofetch
+    else
+        echo "Neither fastfetch nor neofetch is installed."
+        read -rp "Install fastfetch now? [y/N] " ans
+        if [[ "$ans" =~ ^[Yy]$ ]]; then
+            sudo apt install -y fastfetch && fastfetch
+        fi
+    fi
+    pause
+}
+
+fwupd_menu() {
+    if ! ensure_cmd fwupdmgr fwupd; then
+        pause
+        return
+    fi
+    echo -e "  ${BOLD}1)${RESET} Check for firmware updates"
+    echo -e "  ${BOLD}2)${RESET} Apply firmware updates"
+    read -rp "Choose an option: " c
+    case "$c" in
+        1) fwupdmgr get-updates ;;
+        2) sudo fwupdmgr update ;;
+    esac
+    pause
+}
+
+timeshift_menu() {
+    if ! ensure_cmd timeshift timeshift; then
+        pause
+        return
+    fi
+    menu_header "Timeshift Snapshots"
+    echo -e "  ${BOLD}1)${RESET} List snapshots"
+    echo -e "  ${BOLD}2)${RESET} Create a new snapshot"
+    echo -e "  ${BOLD}3)${RESET} Restore a snapshot (interactive)"
+    echo
+    read -rp "Choose an option: " c
+    case "$c" in
+        1) sudo timeshift --list ;;
+        2) sudo timeshift --create --comments "Manual snapshot $(date)" ;;
+        3) sudo timeshift --restore ;;
+    esac
+    pause
+}
+
+flatpak_menu() {
+    if ! ensure_cmd flatpak flatpak; then
+        pause
+        return
+    fi
+    while true; do
+        menu_header "Flatpak Management"
+        echo -e "  ${BOLD}1)${RESET} List installed apps"
+        echo -e "  ${BOLD}2)${RESET} Update all apps"
+        echo -e "  ${BOLD}3)${RESET} Install an app"
+        echo -e "  ${BOLD}4)${RESET} Remove an app"
+        echo -e "  ${BOLD}0)${RESET} Back"
+        echo
+        read -rp "Choose an option: " c
+        case "$c" in
+            1) flatpak list; pause ;;
+            2) flatpak update -y; pause ;;
+            3) read -rp "App ID (e.g. org.gimp.GIMP): " app; [[ -n "$app" ]] && flatpak install -y flathub "$app"; pause ;;
+            4) read -rp "App ID to remove: " app; [[ -n "$app" ]] && flatpak uninstall -y "$app"; pause ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+system_menu() {
+    while true; do
+        menu_header "System Tools"
+        echo -e "  ${BOLD}1)${RESET} btop"
+        echo -e "  ${BOLD}2)${RESET} APT package management"
+        echo -e "  ${BOLD}3)${RESET} View system logs"
+        echo -e "  ${BOLD}4)${RESET} Hardware sensors (temps/fans)"
+        echo -e "  ${BOLD}5)${RESET} Disk health (SMART)"
+        echo -e "  ${BOLD}6)${RESET} Disk usage explorer (ncdu)"
+        echo -e "  ${BOLD}7)${RESET} System info summary"
+        echo -e "  ${BOLD}8)${RESET} Firmware updates (fwupd)"
+        echo -e "  ${BOLD}9)${RESET} System snapshots (Timeshift)"
+        echo -e " ${BOLD}10)${RESET} Flatpak management"
+        echo -e "  ${BOLD}0)${RESET} Back"
+        echo
+        read -rp "Choose an option: " c
+        case "$c" in
+            1) ensure_cmd btop btop && btop ;;
+            2) apt_menu ;;
+            3) syslog_menu ;;
+            4) sensors_tool ;;
+            5) smartctl_tool ;;
+            6) ncdu_tool ;;
+            7) sysinfo_tool ;;
+            8) fwupd_menu ;;
+            9) timeshift_menu ;;
+            10) flatpak_menu ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+# =============================================================================
+# Wayland / Sway utilities
+# =============================================================================
+
+screenshot_tool() {
+    if ! ensure_cmd grim grim; then
+        pause
+        return
+    fi
+    local outdir="$HOME/Pictures"
+    mkdir -p "$outdir"
+    local file="$outdir/screenshot-$(date +%Y%m%d-%H%M%S).png"
+    echo -e "  ${BOLD}1)${RESET} Full screen"
+    echo -e "  ${BOLD}2)${RESET} Select a region"
+    read -rp "Choose an option: " c
+    case "$c" in
+        1) grim "$file" && echo "Saved to $file" ;;
+        2)
+            if ensure_cmd slurp slurp; then
+                grim -g "$(slurp)" "$file" && echo "Saved to $file"
+            fi
+            ;;
+        *) return ;;
+    esac
+    pause
+}
+
+clipboard_tool() {
+    if ! ensure_cmd wl-copy wl-clipboard; then
+        pause
+        return
+    fi
+    echo -e "  ${BOLD}1)${RESET} Show current clipboard content"
+    echo -e "  ${BOLD}2)${RESET} Clear clipboard"
+    read -rp "Choose an option: " c
+    case "$c" in
+        1) wl-paste ;;
+        2) wl-copy --clear ;;
+    esac
+    pause
+}
+
+lock_screen_tool() {
+    ensure_cmd swaylock swaylock && swaylock
+}
+
+brightness_tool() {
+    if ! ensure_cmd brightnessctl brightnessctl; then
+        pause
+        return
+    fi
+    echo "Current brightness:"
+    brightnessctl
+    read -rp "Set brightness % (blank to skip): " pct
+    [[ -n "$pct" ]] && brightnessctl set "${pct}%"
+    pause
+}
+
+audio_tool() {
+    if check_cmd pamixer; then
+        echo -e "  ${BOLD}1)${RESET} Show volume"
+        echo -e "  ${BOLD}2)${RESET} Set volume"
+        echo -e "  ${BOLD}3)${RESET} Mute toggle"
+        read -rp "Choose an option: " c
+        case "$c" in
+            1) pamixer --get-volume ;;
+            2) read -rp "Volume %: " v; pamixer --set-volume "$v" ;;
+            3) pamixer --toggle-mute ;;
+        esac
+    elif check_cmd pactl; then
+        echo -e "  ${BOLD}1)${RESET} List audio sinks"
+        echo -e "  ${BOLD}2)${RESET} Set volume"
+        echo -e "  ${BOLD}3)${RESET} Mute toggle"
+        read -rp "Choose an option: " c
+        case "$c" in
+            1) pactl list short sinks ;;
+            2) read -rp "Volume % (e.g. 50): " v; pactl set-sink-volume @DEFAULT_SINK@ "${v}%" ;;
+            3) pactl set-sink-mute @DEFAULT_SINK@ toggle ;;
+        esac
+    else
+        echo "Neither pamixer nor pactl is installed."
+        read -rp "Install pamixer now? [y/N] " ans
+        [[ "$ans" =~ ^[Yy]$ ]] && sudo apt install -y pamixer
+    fi
+    pause
+}
+
+media_tool() {
+    if ! ensure_cmd playerctl playerctl; then
+        pause
+        return
+    fi
+    echo -e "  ${BOLD}1)${RESET} Play/Pause"
+    echo -e "  ${BOLD}2)${RESET} Next track"
+    echo -e "  ${BOLD}3)${RESET} Previous track"
+    echo -e "  ${BOLD}4)${RESET} Show current status"
+    read -rp "Choose an option: " c
+    case "$c" in
+        1) playerctl play-pause ;;
+        2) playerctl next ;;
+        3) playerctl previous ;;
+        4) playerctl status; playerctl metadata ;;
+    esac
+    pause
+}
+
+kanshi_tool() {
+    echo -e "  ${BOLD}1)${RESET} Show kanshi status"
+    echo -e "  ${BOLD}2)${RESET} Restart kanshi"
+    read -rp "Choose an option: " c
+    case "$c" in
+        1) systemctl --user status kanshi ;;
+        2) systemctl --user restart kanshi ;;
+    esac
+    pause
+}
+
+wayland_menu() {
+    while true; do
+        menu_header "Wayland / Sway Utilities"
+        echo -e "  ${BOLD}1)${RESET} Screenshot (grim/slurp)"
+        echo -e "  ${BOLD}2)${RESET} Clipboard (wl-clipboard)"
+        echo -e "  ${BOLD}3)${RESET} Lock screen (swaylock)"
+        echo -e "  ${BOLD}4)${RESET} Brightness control"
+        echo -e "  ${BOLD}5)${RESET} Audio/volume control"
+        echo -e "  ${BOLD}6)${RESET} Media player controls (playerctl)"
+        echo -e "  ${BOLD}7)${RESET} Display profiles (kanshi)"
+        echo -e "  ${BOLD}0)${RESET} Back"
+        echo
+        read -rp "Choose an option: " c
+        case "$c" in
+            1) screenshot_tool ;;
+            2) clipboard_tool ;;
+            3) lock_screen_tool ;;
+            4) brightness_tool ;;
+            5) audio_tool ;;
+            6) media_tool ;;
+            7) kanshi_tool ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+# =============================================================================
+# Bash tools
+# =============================================================================
+
+open_bash_shell() {
+    echo "Dropping into a bash shell. Type 'exit' to return to the menu."
+    ( cd "$HOME" && bash )
+}
+
+bash_menu() {
+    while true; do
+        menu_header "Bash Tools"
+        echo -e "  ${BOLD}1)${RESET} Open a bash shell"
+        echo -e "  ${BOLD}2)${RESET} Edit ~/.bashrc"
+        echo -e "  ${BOLD}3)${RESET} Edit ~/.bash_aliases"
+        echo -e "  ${BOLD}4)${RESET} Edit ~/.bash_profile"
+        echo -e "  ${BOLD}5)${RESET} Edit ~/.profile"
+        echo -e "  ${BOLD}6)${RESET} Edit /etc/bash.bashrc (system-wide, sudo)"
+        echo -e "  ${BOLD}7)${RESET} Reload ~/.bashrc in this shell"
+        echo -e "  ${BOLD}0)${RESET} Back"
+        echo
+        read -rp "Choose an option: " c
+        case "$c" in
+            1) open_bash_shell ;;
+            2) edit_file "$HOME/.bashrc" ;;
+            3) edit_file "$HOME/.bash_aliases" ;;
+            4) edit_file "$HOME/.bash_profile" ;;
+            5) edit_file "$HOME/.profile" ;;
+            6)
+                if [[ -f /etc/bash.bashrc ]]; then
+                    sudo "$EDITOR" /etc/bash.bashrc
+                else
+                    echo "/etc/bash.bashrc not found on this system."
+                    pause
+                fi
+                ;;
+            7)
+                if [[ -f "$HOME/.bashrc" ]]; then
+                    # shellcheck disable=SC1090
+                    source "$HOME/.bashrc"
+                    echo "Reloaded ~/.bashrc into this menu's shell (won't affect other open terminals)."
+                else
+                    echo "~/.bashrc not found."
+                fi
+                pause
+                ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+# =============================================================================
+# Main menu
+# =============================================================================
+
+main_menu() {
+    while true; do
+        menu_header ""
+        echo -e "  ${BOLD}1)${RESET} Edit a Sway/related config file"
+        echo -e "  ${BOLD}2)${RESET} Reload Sway config"
+        echo -e "  ${BOLD}3)${RESET} Networking tools"
+        echo -e "  ${BOLD}4)${RESET} System tools"
+        echo -e "  ${BOLD}5)${RESET} Wayland / Sway utilities"
+        echo -e "  ${BOLD}6)${RESET} Bash tools"
+        echo -e "  ${BOLD}7)${RESET} Open a shell in ~/.config/sway"
+        echo -e "  ${BOLD}0)${RESET} Exit"
+        echo
+        read -rp "$(echo -e ${BOLD}'Choose an option: '${RESET})" choice
+
+        case "$choice" in
+            1) show_config_menu ;;
+            2) reload_sway ;;
+            3) networking_menu ;;
+            4) system_menu ;;
+            5) wayland_menu ;;
+            6) bash_menu ;;
+            7) ( cd "$HOME/.config/sway" 2>/dev/null && exec "${SHELL:-bash}" ) || { echo "Directory not found."; pause; } ;;
+            0) echo "Bye."; exit 0 ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+main_menu
