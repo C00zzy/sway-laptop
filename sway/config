@@ -6,6 +6,7 @@ exec dbus-update-activation-environment DISPLAY I3SOCK SWAYSOCK WAYLAND_DISPLAY 
 ### Variables
 #gaps inner 20
 #
+exec lxpolkit
 exec pipewire
 # Logo key. Use Mod1 for Alt.
 set $mod Mod4
@@ -14,12 +15,26 @@ set $left h
 set $down j
 set $up k
 set $right l
+set $WebBrowser brave-browser
+set $musicplayer LD_PRELOAD=/usr/local/lib/spotify-adblock.so spotify
 # Your preferred terminal emulator
 set $term foot -c .config/foot/foot.conf 
 # Your preferred application launcher
 # Note: pass the final command to swaymsg so that the resulting window can be opened
 # on the original workspace that the command was run on.
 set $menu rofi -show drun
+set $config-menu $HOME/.config/sway/swaymenu
+
+# Screenshots:
+# Super+P: Current window
+# Super+Shift+p: Select area
+# Super+Alt+p Current output
+# Super+Ctrl+p Select a window
+bindsym Mod4+p       exec grimshot copy active
+bindsym Mod4+Shift+p exec grimshot copy area
+bindsym Mod4+Mod1+p  exec grimshot copy output
+bindsym Mod4+Ctrl+p  exec grimshot copy window
+bindsym Mod4+shift+return exec foot -c .config/foot/foot.conf  $config-menu
 
 
 ### Output configuration
@@ -29,16 +44,15 @@ output * bg /home/nolan/Downloads/HYAuNYt.png  fill
 ## screen backlight, first set min and restore previous
 exec light -N 5
 exec light -I
-bindsym XF86MonBrightnessUp   exec "light -A 10 && light -O"
-bindsym XF86MonBrightnessDown exec "light -U 10 && light -O"
-# keyboard backlight
-bindsym XF86KbdBrightnessUp   exec "light -S 100 -s sysfs/leds/spi::kbd_backlight"
-bindsym XF86KbdBrightnessDown exec "light -S 0   -s sysfs/leds/spi::kbd_backlight"
+bindsym XF86MonBrightnessUp   exec "brightnessctl set +10%"
+bindsym XF86MonBrightnessDown exec "brightnessctl set 10%-"
 bindsym $mod+Shift+o exec systemctl suspend
 
 ### Key bindings
 #
 #
+    # Start spotify
+    bindsym $mod+g exec $musicplayer
     # Start a terminal
     bindsym $mod+Return exec $term
 
@@ -47,6 +61,8 @@ bindsym $mod+Shift+o exec systemctl suspend
 
     # Start your launcher
     bindsym $mod+r exec $menu
+
+    bindsym $mod+o exec $WebBrowser
 
     # Drag floating windows by holding down $mod and left mouse button.
     # Resize them with right mouse button + $mod.
@@ -157,7 +173,7 @@ bindsym XF86AudioMute exec pactl set-sink-mute @DEFAULT_SINK@ toggle
 client.focused         #3b4252 #eceff4 #3b4252 #dceff4
 
 # Border color when the window is unfocused
-client.unfocused       #434c5e #2e3440 #434c5e #2e3440
+client.unfocused       #434c5e #2e3440 #eceff4  #2e3440
 
 # Border color when the window is focused but not active
 client.focused_inactive #4c566a #2e3440 #4c566a #2e3440
